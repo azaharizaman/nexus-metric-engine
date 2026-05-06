@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nexus\MetricEngine\Tests\Unit\Services;
 
 use Nexus\MetricEngine\Exceptions\InsufficientDataException;
+use Nexus\MetricEngine\Services\PeriodComparatorService;
 use Nexus\MetricEngine\Services\WindowResolverService;
 use Nexus\MetricEngine\ValueObjects\MetricSeries;
 use Nexus\MetricEngine\ValueObjects\TimeSeriesPoint;
@@ -17,7 +18,20 @@ class WindowResolverServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->resolver = new WindowResolverService();
+        $this->resolver = new WindowResolverService(new PeriodComparatorService());
+    }
+
+    public function test_service_can_be_constructed_with_default_period_comparator(): void
+    {
+        $resolver = new WindowResolverService();
+        $series = new MetricSeries('sales', [
+            new TimeSeriesPoint('2026-01', 10),
+            new TimeSeriesPoint('2026-02', 20),
+        ]);
+
+        $resolved = $resolver->resolve($series, TimeWindow::fixedRolling(1));
+
+        $this->assertSame('2026-02', $resolved->points[0]->periodKey);
     }
 
     public function test_fixed_rolling_window_returns_last_n_points(): void

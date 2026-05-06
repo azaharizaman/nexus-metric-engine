@@ -13,6 +13,7 @@ use Nexus\MetricEngine\Enums\ValueType;
 use Nexus\MetricEngine\Exceptions\FormulaValidationException;
 use Nexus\MetricEngine\Exceptions\MissingInputException;
 use Nexus\MetricEngine\Exceptions\TypeMismatchException;
+use Nexus\MetricEngine\ValueObjects\FormulaReference;
 use Nexus\MetricEngine\ValueObjects\MetricInput;
 use Nexus\MetricEngine\ValueObjects\MetricResult;
 use Nexus\MetricEngine\ValueObjects\MetricSeries;
@@ -21,7 +22,7 @@ class FormulaEvaluatorService implements FormulaEvaluatorInterface
 {
     public function __construct(
         private readonly ScalarMetricCalculatorService $calculator,
-        private readonly ?TimeSeriesMetricCalculatorService $timeSeriesCalculator = null
+        private readonly TimeSeriesMetricCalculatorService $timeSeriesCalculator
     ) {}
 
     /** @param array<string, MetricInput|MetricSeries> $inputs */
@@ -77,6 +78,20 @@ class FormulaEvaluatorService implements FormulaEvaluatorInterface
     {
         if ($operand instanceof FormulaInterface) {
             return $this->evaluate($operand, $inputs)->value();
+        }
+
+        if ($operand instanceof FormulaReference) {
+            if (! isset($inputs[$operand->identifier])) {
+                throw new MissingInputException($operand->identifier);
+            }
+
+            $input = $inputs[$operand->identifier];
+
+            if ($input instanceof MetricSeries) {
+                return $input;
+            }
+
+            return $input->value;
         }
 
         if (is_array($operand)) {
@@ -167,9 +182,9 @@ class FormulaEvaluatorService implements FormulaEvaluatorInterface
         }
 
         $value = match ($formula->operation()) {
-            AggregationType::ROLLING_SUM => $this->resolveTimeSeriesCalculator()
+            AggregationType::ROLLING_SUM => $this->timeSeriesCalculator
                 ->rollingSum($series, $window, $formula->precisionPolicy()),
-            AggregationType::ROLLING_AVG => $this->resolveTimeSeriesCalculator()
+            AggregationType::ROLLING_AVG => $this->timeSeriesCalculator
                 ->rollingAvg($series, $window, $formula->precisionPolicy()),
             default => throw new FormulaValidationException(
                 "Unsupported time-series aggregation type [{$formula->operation()->value}]."
@@ -199,7 +214,7 @@ class FormulaEvaluatorService implements FormulaEvaluatorInterface
             throw new FormulaValidationException('Operation [period_compare] requires a previous-period comparison definition.');
         }
 
-        $result = $this->resolveTimeSeriesCalculator()
+        $result = $this->timeSeriesCalculator
             ->periodCompare($currentValue, $previousValue, $formula->precisionPolicy());
 
         return new MetricResult(
@@ -320,9 +335,4 @@ class FormulaEvaluatorService implements FormulaEvaluatorInterface
         return null;
     }
 
-    private function resolveTimeSeriesCalculator(): TimeSeriesMetricCalculatorService
-    {
-        return $this->timeSeriesCalculator
-            ?? new TimeSeriesMetricCalculatorService(new NumericValueService(), new WindowResolverService());
-    }
 }
